@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:app_practice/widgets/task_item.dart';
 import 'package:app_practice/models/task.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+//import 'package:shared_preferences/shared_preferences.dart';
+import 'package:app_practice/repositories/task_repository.dart';
 
 class Home extends StatefulWidget {
   const Home({super.key});
@@ -15,6 +16,9 @@ class _HomeState extends State<Home> {
   //pongo final p
   final TextEditingController _tareaController = TextEditingController();
   final List<Task> _tareas = [];
+  final TaskRepository _repository = TaskRepository();
+  bool _isLoading = true;
+  String? _error;
 
   @override
   void initState() {
@@ -23,30 +27,10 @@ class _HomeState extends State<Home> {
     _cargarTareas();
   }
 
-  //guardar en almacenamiento local
-  Future<void> _guardarTareas() async {
-    final pref = await SharedPreferences.getInstance();
-    final tareasJson = _tareas.map((tarea) => tarea.toJson()).toList();
-    await pref.setStringList('tareas', tareasJson);
-  }
-
-  //Cargar tareas al iniciar la app
-  Future<void> _cargarTareas() async {
-    final pref = await SharedPreferences.getInstance();
-    final tareasJson = pref.getStringList('tareas');
-
-    if (tareasJson == null) return;
-
-    setState(() {
-      _tareas.clear();
-      _tareas.addAll(tareasJson.map((json) => Task.fromJson(json)));
-    });
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text('Pantalla con widget'), centerTitle: true),
+      appBar: AppBar(title: Text('TODO LIST HECHO CON FLUTTER'), centerTitle: true),
       body: Column(
         children: [
           Padding(
@@ -54,7 +38,7 @@ class _HomeState extends State<Home> {
             child: TextField(
               controller: _tareaController,
               decoration: const InputDecoration(
-                labelText: 'NuevaTarea',
+                labelText: 'Nueva Tarea',
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.all(Radius.circular(12)),
                 ),
@@ -62,56 +46,48 @@ class _HomeState extends State<Home> {
             ),
           ),
           Expanded(
-            //con expanded utilizo correctamente todo el espacio en
-            //pantalla
+            child: Builder(
+              builder: (context) {
+                if (_isLoading) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                if (_error != null) {
+                  return Center(child: Text(_error!));
+                }
 
-            //Como la coleccion aun esta vacia,
-            //debo manejar ese escenario con lo siguiente
-            child: _tareas.isEmpty
-                ? const Center(child: Text('Aun no hay tareas'))
-                : ListView.builder(
-                    itemCount: _tareas.length,
-                    /*itemBuilder: (context, index) {
-                      final tarea = _tareas[index];
+                if (_tareas.isEmpty) {
+                  return Center(child: Text('Aun no hay tareas'));
+                }
+                return ListView.builder(
+                  itemCount: _tareas.length,
+                  itemBuilder: (context, index) {
+                    final tarea = _tareas[index];
 
-                      //Utilizo el widget que cree y como en el constructor
-                      //agregue el valor final Title
-                      //flutter ya sabe que el widget debe recibir ese valor
-                      return TaskItem(
-                        title: tarea.title, 
-                        completed: tarea.completed, 
-                        onChanged: (value){
-                          setState(() {
-                            _tareas[index]=tarea.copyWith(completed: value ?? false);
-                          });
+                    return Dismissible(
+                      key: ValueKey('${tarea.title}-$index'),
+                      direction: DismissDirection.endToStart,
+                      background: Container(
+                        color: Colors.red,
+                        alignment: Alignment.centerRight,
+                        padding: const EdgeInsets.only(right: 12),
+                        child: const Icon(Icons.delete, color: Colors.white),
+                      ),
+                      onDismissed: (direction) {
+                        final tareaEliminada = tarea;
+                        final posicion = index;
+
+                        setState(() {
+                          _tareas.removeAt(index);
                         });
-                    },*/
-                    itemBuilder: (context, index) {
-                      final tarea = _tareas[index];
+                        _guardarTareas();
 
-                      return Dismissible(
-                        key: ValueKey('${tarea.title}-$index'),
-                        direction: DismissDirection.endToStart,
-                        background: Container(
-                          color: Colors.red,
-                          alignment: Alignment.centerRight,
-                          padding: const EdgeInsets.only(right: 12),
-                          child: const Icon(Icons.delete, color: Colors.white),
-                        ),
-                        onDismissed: (direction) {
-                          final tareaEliminada = tarea;
-                          final posicion = index;
-                          setState(() {
-                            _tareas.removeAt(index);
-                          });
-                          _guardarTareas();
-                          //FEDBACK VISUAL
-                          ScaffoldMessenger.of(context).clearSnackBars();
-                          ScaffoldMessenger.of(context).showSnackBar(
+                        ScaffoldMessenger.of(context)
+                          ..clearSnackBars()
+                          ..showSnackBar(
                             SnackBar(
-                              content: const Text("Tarea eliminada"),
+                              content: const Text("Tarea Eliminada"),
                               action: SnackBarAction(
-                                label: 'DESHACER',
+                                label: "DESHACER",
                                 onPressed: () {
                                   setState(() {
                                     _tareas.insert(posicion, tareaEliminada);
@@ -121,31 +97,72 @@ class _HomeState extends State<Home> {
                               ),
                             ),
                           );
+                      },
+                      child: TaskItem(
+                        title: tarea.title,
+                        completed: tarea.completed,
+                        onChanged: (value) {
+                          setState(() {
+                            _tareas[index] = tarea.copyWith(
+                              completed: value ?? false,
+                            );
+                          });
+                          _guardarTareas();
                         },
-                        //el widget que se muestra
-                        child: TaskItem(
-                          title: tarea.title,
-                          completed: tarea.completed,
-                          onChanged: (value) {
-                            setState(() {
-                              _tareas[index] = tarea.copyWith(
-                                completed: value ?? false,
-                              );
-                            });
-                            _guardarTareas();
-                          },
-                        ),
-                      );
-                    },
-                  ),
+                      ),
+                    );
+                  },
+                );
+              },
+            ),
           ),
         ],
       ),
+
       floatingActionButton: FloatingActionButton(
         onPressed: _agregarTarea,
         child: const Icon(Icons.add),
       ),
     );
+  }
+
+  //**********************************************************
+  // PROCEDIMIENTOS
+  //******************************************************* */
+
+  //guardar en almacenamiento local
+  Future<void> _guardarTareas() async {
+    await _repository.saveTasks(_tareas);
+  }
+
+  //Cargar tareas al iniciar la app
+  Future<void> _cargarTareas() async {
+    print('INICIO CARGA');
+    setState(() {
+      _isLoading = true;
+      _error = null;
+    });
+
+    try {
+      await Future.delayed(const Duration(seconds: 5));
+
+      print('DESPUES DEL DELAY');
+      final tareas = await _repository.getTasks();
+
+      setState(() {
+        _tareas
+          ..clear()
+          ..addAll(tareas);
+      });
+    } catch (e) {
+      setState(() {
+        _error = 'Error al cargar tareas';
+      });
+    } finally {
+      setState(() {
+        _isLoading = false;
+      });
+    }
   }
 
   void _agregarTarea() {
